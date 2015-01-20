@@ -1,0 +1,8 @@
+{application, rbs,
+ [{description, ""},
+  {vsn, "1"},
+  {modules, [gen_rbs, gfs_ue]},
+%%  {registered, [ads1015_driver]},
+  {applications, [kernel, stdlib]}%%,
+%%  {mod, {ads1015_driver_app, []}},
+ ]}.
