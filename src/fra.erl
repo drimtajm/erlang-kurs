@@ -4,27 +4,35 @@
 %%% @doc
 %%%
 %%% @end
-%%% Created : 15 Jan 2015 by dreamtime <dreamtime@trillium>
+%%% Created : 20 Jan 2015 by dreamtime <dreamtime@trillium>
 %%%-------------------------------------------------------------------
--module(gen_rbs).
+-module(fra).
 
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, dump_ue_info/0]).
+-export([start_link/0, notify_fra/1, subscribe/2, unsubscribe/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
--define(SERVER, rbs).
+-define(SERVER, ?MODULE).
 
--include("../include/gen_rbs.hrl").
--include("../include/events.hrl").
+-record(state, {subscribers = []}).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
+
+notify_fra(Data) ->
+    gen_server:call(?SERVER, {notify_fra, Data}).
+
+subscribe(Who, Event) ->
+    gen_server:call(?SERVER, {subscribe, Who, Event}).
+
+unsubscribe(Who, Event) ->
+    gen_server:call(?SERVER, {unsubscribe, Who, Event}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -35,10 +43,6 @@
 %%--------------------------------------------------------------------
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
-
-dump_ue_info() ->
-    gen_server:call(?SERVER, get_ue_info).
-
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -72,14 +76,31 @@ init([]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_call(get_ue_info, _From, State) ->
-    Reply = State#state.ues,
-    {reply, Reply, State};
-
-handle_call(_Request, _From, State) ->
+handle_call({notify_fra, Data}, _From, State) ->
+    Subscribers = State#state.subscribers,
+    EventName = element(1, Data),
+    EventSubscribers = [Who || {Event, Who} <- Subscribers,
+			       Event =:= EventName], 
+    
+    lists:foreach(fun(Subscriber)->
+			  Subscriber ! Data
+		  end,
+		  EventSubscribers),
+			  
     Reply = ok,
-    {reply, Reply, State}.
+    {reply, Reply, Subscribers};
 
+handle_call({subscribe, Who, Event}, _From, State) ->
+    Subscribers = State#state.subscribers,
+    NewSubscribers = [ { Event, Who } | Subscribers ],
+    Reply = ok,
+    {reply, Reply, State#state{subscribers = NewSubscribers}};
+
+handle_call({unsubscribe, Who, Event}, _From, State) ->
+    Subscribers = State#state.subscribers,
+    NewSubscribers = Subscribers -- [{Event, Who}],
+    Reply = ok,
+    {reply, Reply, State#state{subscribers = NewSubscribers}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -104,27 +125,8 @@ handle_cast(_Msg, State) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-%handle_info(_Info, State) ->
-%    {noreply, State}.
-
-handle_info({hello, UEName, UEProc}, #state{ues=UEs}=State) ->
-    io:format("RBS UE Connect '~p'~n", [[UEName, UEProc]]),
-    NewState = State#state{ues=[ {UEName, UEProc} | UEs ]},
-    UEProc ! { welcome, UEName },
-    fra:notify_fra(#event_connected_ue{id=UEProc}),
-    {noreply, NewState};
-
-handle_info({bye, UEName, UEProc}, #state{ues=UEs}=State) ->
-    io:format("RBS UE Disconnect '~p'~n", [[UEName, UEProc]]),
-    UEProc ! {see_you_later, UEName},
-    fra:notify_fra(#event_disconnected_ue{id=UEProc}),
-    NewState = State#state{ues=lists:delete({UEName, UEProc}, UEs)},
-    {noreply, NewState};
-
-handle_info(Else, State) ->
-    io:format("RBS UE Unexpected message: ~p~n", [Else]),
+handle_info(_Info, State) ->
     {noreply, State}.
-
 
 %%--------------------------------------------------------------------
 %% @private
