@@ -17,10 +17,13 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
+-export([handle/1]).
+
 -define(SERVER, rbs).
 
 -include("../include/gen_rbs.hrl").
 -include("../include/events.hrl").
+-include("../include/EUTRA-RRC-Definitions.hrl").
 
 %%%===================================================================
 %%% API
@@ -56,7 +59,8 @@ dump_ue_info() ->
 %% @end
 %%--------------------------------------------------------------------
 init([]) ->
-    {ok, #state{}}.
+    {ok, Pid} = tcpserver:start_server(fun handle/1),
+    {ok, #state{tcpserver_pid=Pid}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -107,11 +111,21 @@ handle_cast(_Msg, State) ->
 %handle_info(_Info, State) ->
 %    {noreply, State}.
 
-handle_info({hello, UEName, UEProc}, #state{ues=UEs}=State) ->
-    io:format("RBS UE Connect '~p'~n", [[UEName, UEProc]]),
-    NewState = State#state{ues=[ {UEName, UEProc} | UEs ]},
-    UEProc ! { welcome, UEName },
-    fra:notify_fra(#event_connected_ue{id=UEProc}),
+handle_info(
+  {#'RRC-UL-CCCH-Message'{
+      message =
+	  {c1,{rrcConnectionRequest,
+	       #'RRC-RRCConnectionRequest'{
+		  criticalExtensions =
+		      {'rrcConnectionRequest-r8',
+		       #'RRC-RRCConnectionRequest-r8-IEs'{
+			  'ue-Identity' =
+			      {randomValue,{0,<<255,255,229,156,ID>>}}}}}}}},
+   SocketHandler}, #state{ues=UEs}=State) ->
+    io:format("RBS UE Connect '~p'~n", [ID]),
+    NewState = State#state{ues=[ ID | UEs ]},
+    SocketHandler ! rrclib:make_rrc_connection_setup(ID),
+    fra:notify_fra(#event_connected_ue{id=ID}),
     {noreply, NewState};
 
 handle_info({bye, UEName, UEProc}, #state{ues=UEs}=State) ->
@@ -154,3 +168,30 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+myreceive(Socket, Pending) ->
+    case erlang:decode_packet(asn1, Pending, []) of
+	{ok, Packet, Rest} ->
+	    {ok, Packet, Rest};
+	{more, _} ->
+	    {ok, Data} = gen_tcp:recv(Socket, 0),
+	    myreceive(Socket, <<Pending/binary, Data/binary>>)
+    end.
+
+handle1(Socket, Rest) ->
+    {ok, Packet, NewRest} = myreceive(Socket, Rest),
+    rbs ! { decode_packet(Packet), self() },
+    receive
+	Reply -> gen_tcp:send(Socket, encode_message(Reply))
+    end,
+    handle1(Socket, NewRest).
+
+handle(Socket) ->
+    handle1(Socket, <<"">>).
+
+encode_message(Msg) ->
+    {ok, Packet} = 'EUTRA-RRC-Definitions':encode('DL-CCCH-Message', Msg),
+    Packet.
+
+decode_packet(Packet) ->
+    {ok, Msg} = 'EUTRA-RRC-Definitions':decode('UL-CCCH-Message', Packet),
+    Msg.

@@ -1,2 +1,3 @@
 -record(state, {subscribers=[] :: list(),
-		ues=[]         :: list()}).
+		ues=[]         :: list(),
+		tcpserver_pid  :: pid()}).

@@ -20,17 +20,17 @@
 -define(SERVER, ?MODULE).
 -define(NAME, gfsue).
 
--record(state, {}).
+-record(state, {id}).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
 connect(ID) ->
-    gen_fsm:sync_send_event(ID, connect, infinity).
+    gen_fsm:sync_send_event(mk_proc_name(ID), connect, infinity).
 disconnect(ID) ->
-    gen_fsm:sync_send_event(ID, disconnect, infinity).
+    gen_fsm:sync_send_event(mk_proc_name(ID), disconnect, infinity).
 stop(ID) ->
-    gen_fsm:sync_send_all_state_event(ID, stop, infinity).
+    gen_fsm:sync_send_all_state_event(mk_proc_name(ID), stop, infinity).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -42,7 +42,7 @@ stop(ID) ->
 %% @end
 %%--------------------------------------------------------------------
 start_link(ID) ->
-    gen_fsm:start_link({local, ID}, ?MODULE, [], []).
+    gen_fsm:start_link({local, mk_proc_name(ID)}, ?MODULE, [ID], []).
 
 %%%===================================================================
 %%% gen_fsm callbacks
@@ -61,8 +61,8 @@ start_link(ID) ->
 %%                     {stop, StopReason}
 %% @end
 %%--------------------------------------------------------------------
-init([]) ->
-    {ok, disconnected, no_value}.
+init([ID]) ->
+    {ok, disconnected, #state{id=ID}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -81,10 +81,10 @@ init([]) ->
 %%--------------------------------------------------------------------
 
 disconnected(connect, From, State) ->
-    {reply, do_connect(), connected, State}.
+    {reply, do_connect(State#state.id), connected, State}.
 
 connected(disconnect, From, State) ->
-    {reply, do_disconnect(), disconnected, State}.
+    {reply, do_disconnect(State#state.id), disconnected, State}.
     
 
 %%--------------------------------------------------------------------
@@ -191,18 +191,20 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-do_connect() ->
-    rbs ! {hello, ?NAME, self()},
+do_connect(ID) ->
+
+    rbs ! {rrclib:make_rrc_connection_request(ID), ?NAME, self()},
     receive
-	{welcome, ?NAME} -> ok
+	{welcome, ID} -> ok
     end.
 
-do_disconnect() ->
+do_disconnect(_ID) ->
     rbs ! {bye, ?NAME, self()},
     receive
 	{see_you_later, ?NAME} ->
 	    ok
     end.
 
-mk_proc_name() ->
-    list_to_atom(lists:concat([ue, "_", ?NAME])).
+
+mk_proc_name(ID) ->
+    list_to_atom(lists:concat([ue, "_", ID])).
