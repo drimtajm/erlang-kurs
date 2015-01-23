@@ -1,0 +1,18 @@
+Erlang/OTP 17 [erts-6.3] [source] [64-bit] [smp:4:4] [async-threads:10] [kernel-poll:false]
+
+Eshell V6.3  (abort with ^G)
+1> c("/home/dreamtime/workspace/erlang-kurs/src/tcpclient", [{outdir, "/home/dreamtime/workspace/erlang-kurs/ebin/"}]).
+c("/home/dreamtime/workspace/erlang-kurs/src/tcpclient", [{outdir, "/home/dreamtime/workspace/erlang-kurs/ebin/"}]).
+/home/dreamtime/workspace/erlang-kurs/src/tcpclient.erl:73: Warning: variable 'From' is unused
+{ok,tcpclient}
+2> tcpserver:start_server(fun(Socket) -> gen_tcp:send(Socket, "Test") end).
+** exception error: undefined function tcpserver:start_server/1
+3> code:add_patha("../ebin").
+true
+4> tcpserver:start_server(fun(Socket) -> gen_tcp:send(Socket, "Test") end).
+{ok,<0.43.0>}
+5> tcpclient:start_link().
+{ok,<0.46.0>}
+6> tcpclient:read_buffer().
+{ok,<<"Test">>}
+7> 
